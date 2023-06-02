@@ -1,0 +1,98 @@
+float Pi = 3.14159265359;
+float tmin=0.0;
+float tmax=1000000000.0;
+float3 orig = CameraPosition;
+float3 dir=normalize(PixelPosition - CameraPosition);
+float3 uPlanetPosition = float3(0,0,0);
+float t0, t1;
+bool intersect;
+float3 L = uPlanetPosition - orig;
+float DT=dot(L,dir);
+float R2=pow(AtmosphereRadius,2.0);
+float CT2=dot(L,L)-pow(DT,2.0);
+
+if(CT2> R2)
+intersect = false;
+
+float AT=sqrt(R2-CT2);
+float BT=AT;
+t0=DT-AT;
+t1=DT+BT;
+intersect =  true;
+if (!intersect || t1 < 0.0) 
+    return float4(0,0,0,0);
+
+if (t0 > tmin && t0 > 0.0) tmin = t0;
+if (t1 < tmax) tmax = t1;float dist_1 = float(tmax - tmin) / float(numSamples);
+float dist_2 = float(length(PixelPosition-CameraPosition) - tmin) / float(numSamples);
+float segmentLength = min(dist_1,dist_2);
+float tCurrent = tmin;
+float3 sumR=float3(0,0,0);
+float3 sumM=float3(0,0,0); 
+float opticalDepthR = 0.0, opticalDepthM = 0.0;
+float mu = dot(dir, LightDirection); 
+float Hr = Rayleigh.w;
+float Hm = Mie.w;
+float power = -1.0;
+float3 betaM = float3(Mie.x,Mie.y,Mie.z);
+float3 betaR = float3(Rayleigh.x,Rayleigh.y,Rayleigh.z);
+float g = 0.9999;
+float phaseR = 3.0 / (16.0 * Pi) * (1.0 + mu * mu);
+float phaseM = 3.0 / (10.0 * Pi) * ((1.0 - g * g) * (1.0 + mu * mu)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * mu, 2.9));
+float3 samplePosition;
+float height;
+float hr;
+float hm;
+float t0Light, t1Light;
+float opticalDepthLightR = 0.0, opticalDepthLightM = 0.0,opticalDepthLightClouds = 0.0;
+int j;
+float segmentLengthLight;
+float heightLight;
+float3 samplePositionLight;
+float3 tau;
+float3 attenuation;
+float  tCurrentLight;
+for (int i = 0; i < numSamples; ++i) 
+{
+    samplePosition = orig + (tCurrent + segmentLength * 0.5) * dir;
+    
+    height = length(samplePosition - uPlanetPosition) - PlanetRadius;
+    
+    hr = exp(-height / Hr) * segmentLength;
+    hm = exp(-height / Hm) * segmentLength;
+    opticalDepthR += hr;
+    opticalDepthM += hm;
+    
+    L = uPlanetPosition - samplePosition;
+    DT=dot(L,LightDirection);
+    R2=pow(AtmosphereRadius,2.0);
+    CT2=dot(L,L)-pow(DT,2.0);
+
+    AT=sqrt(R2-CT2);
+    BT=AT;
+    t0Light=DT-AT;
+    t1Light=DT+BT;
+
+    segmentLengthLight = t1Light / float(numSamplesLight);
+    tCurrentLight = 0.0;
+    opticalDepthLightR = 0.0;
+    opticalDepthLightM = 0.0;
+    opticalDepthLightClouds = 0.0;
+    
+    for (j = 0; j < numSamplesLight; ++j) 
+    {
+        samplePositionLight = samplePosition + (tCurrentLight + segmentLengthLight * 0.5) * LightDirection;
+        heightLight = length(samplePositionLight - uPlanetPosition) - PlanetRadius;
+        opticalDepthLightR +=  exp(-heightLight / Hr) * segmentLengthLight;
+        opticalDepthLightM +=  exp(-heightLight / Hm) * segmentLengthLight;
+        tCurrentLight += segmentLengthLight;
+    }
+    tau = betaR * (opticalDepthR + opticalDepthLightR) + betaM * 1.1 * (opticalDepthM + opticalDepthLightM);
+    attenuation = float3(exp(-tau.x), exp(-tau.y), exp(-tau.z));   
+    sumR += attenuation * hr;
+    sumM += attenuation * hm;
+    tCurrent += segmentLength;
+}
+
+float3 color = (RayleighControl*sumR * betaR * phaseR + MieControl*sumM * betaM * phaseM) * LightPower;
+return float4(color,0.0);
